@@ -1,0 +1,285 @@
+
+    To instantiate an object on the stack.  You can include the parenthesis if you need to call the constuctor.
+
+        MyClass myclass;
+        MyClass myclass(12);
+
+    To instantiate an object on the heap.
+
+        MyClass *myclass = new MyClass();
+        MyClass *myclass = new MyClass(12);
+
+        Asterisk does not matter where it is.
+
+        MyClass* myclass = new MyClass();
+        MyClass* myclass = new MyClass(12);
+
+    To instantiate an object using smart pointers.
+
+        - A smart pointer that owns a dynamically allocated resource;
+
+                std::unique_ptr
+
+                A std::unique_ptr owns of the object it points to and no other smart pointers can point to it.
+                When the std::unique_ptr goes out of scope, the object is deleted. This is useful when you are
+                working with a temporary, dynamically-allocated resource that can get destroyed once out of scope.
+
+                How to construct a std::unique_ptr
+
+                    A std::unique_ptr is created like this:
+
+                        std::unique_ptr<Type> p(new Type);
+
+                    For example:
+
+                        std::unique_ptr<int>    p1(new int);
+                        std::unique_ptr<int[]>  p2(new int[50]);
+                        std::unique_ptr<Object> p3(new Object("Lamp"));
+
+                    It is also possible to construct std::unique_ptrs with the help of the special function std::make_unique, like this:
+
+                        std::unique_ptr<Type> p = std::make_unique<Type>(...size or parameters...);
+
+                    For example:
+
+                        std::unique_ptr<int>    p1 = std::make_unique<int>();
+                        std::unique_ptr<int[]>  p2 = std::make_unique<int[]>(50);
+                        std::unique_ptr<Object> p3 = std::make_unique<Object>("Lamp");
+
+                    If you can, always prefer to allocate objects using std::make_unique. I'll show you why in the last section of this article.
+
+                    The main feature of this smart pointer is to vanish when no longer in use. Consider this:
+
+                        void compute() {
+                            std::unique_ptr<int[]> data = std::make_unique<int[]>(1024);
+                            /* do some meaningful computation on your data...*/
+                        }   // `data` goes out of scope here: it is automatically destroyed
+
+                        int main() {
+                            compute();
+                        }
+
+                    The smart pointer goes out of scope when the compute() function reaches the end of its body.
+                    It's destructor is invoked and the memory cleaned up automatically. No need to take care of anything else.
+
+                    One resource, one std::unique_ptr
+
+                    I could say that std::unique_ptr is very jealous of the dynamic object it holds:
+                    you can't have multiple references to its dynamic data.
+
+                    For example:
+
+                        void compute(std::unique_ptr<int[]> p) { ... }
+
+                        int main() {
+                            std::unique_ptr<int[]> ptr = std::make_unique<int[]>(1024);
+                            std::unique_ptr<int[]> ptr_copy = ptr; // ERROR! Copy is not allowed
+                            compute(ptr);  // ERROR! `ptr` is passed by copy, and copy is not allowed
+                        }
+
+                    This is done on purpose and it's an important feature of std::unique_ptr: there can be at most
+                    one std::unique_ptr pointing at any one resource. This prevents the pointer from being incorrectly
+                    deleted multiple times.
+
+                    Technically this happens because a std::unique_ptr doesn't have a copy constructor.
+
+
+
+
+
+        - A smart pointer that owns a shared dynamically allocated resource. Several std::shared_ptrs may
+          own the same resource and an internal counter keeps track of them;
+
+                std::shared_ptr
+
+                A std::shared_ptr owns the object it points to but, unlike std::unique_ptr, it allows for multiple
+                references. A special internal counter is decreased each time a std::shared_ptr pointing to the same
+                resource goes out of scope. This technique is called reference counting. When the very last one is
+                destroyed the counter goes to zero and the data will be deallocated.
+
+                This type of smart pointer is useful when you want to share your dynamically-allocated data around,
+                the same way you would do with raw pointers or references.
+
+                How to construct a std::shared_ptr
+
+                A std::shared_ptr is constructed like this:
+
+                    std::shared_ptr<Type> p(new Type);
+
+                For example:
+
+                    std::shared_ptr<int>    p1(new int);
+                    std::shared_ptr<Object> p2(new Object("Lamp"));
+
+                There is an alternate way to build a std::shared_ptr, powered by the special function std::make_shared:
+
+                    std::shared_ptr<Type> p = std::make_shared<Type>(...parameters...);
+
+                For example:
+
+                    std::shared_ptr<int>    p1 = std::make_shared<int>();
+                    std::shared_ptr<Object> p2 = std::make_shared<Object>("Lamp");
+
+                This should be the preferred way to construct this kind of smart pointer. I'll show you why in the
+                last section of this article.
+
+                Issues with arrays
+
+                    Until C++17 there is no easy way to build a std::shared_ptr holding an array. Prior to C++17 this
+                    smart pointer always calls delete by default (and not delete[]) on its resource: you can create a workaround by using a custom deleter. One of the many std::shared_ptr constructors takes a lambda as second parameter, where you manually delete the object it owns. For example:
+
+                        std::shared_ptr<int[]> p2(new int[16], [] (int* i) {
+                          delete[] i; // Custom delete
+                        });
+
+                    Unfortunately there's no way to do this when using std::make_shared.
+
+                One of the main features of std::shared_ptr is the ability to track how many pointers
+                refer to the same resource. You can get information on the number or references with the
+                method use_count(). Consider this:
+
+                    void compute() {
+                      std::shared_ptr<int> ptr = std::make_shared<int>(100);
+                      // ptr.use_count() == 1
+                      std::shared_ptr<int> ptr_copy = ptr;   // Make a copy: with shared_ptr we can!
+                      // ptr.use_count() == 2
+                      // ptr_copy.use_count() == 2, it's the same underlying data after all
+                    } // `ptr` and `ptr_copy` go out of scope here. No more references to the
+                      // original data (i.e. use_count() == 0), so it is automatically cleaned up.
+
+                    int main() {
+                      compute();
+                    }
+
+                Notice how both ptr and ptr_copy go out of scope at the end of the function, bringing the reference
+                count down to zero. At that point, the destructor of the last object detects that there aren't any
+                more references around and triggers the memory cleanup.
+
+                One resource, many std::shared_ptr. Mind the circular references!
+
+                The power of multiple references may lead to nasty surprises. Say I'm writing a game where a player
+                has another player as companion, like this:
+
+                    struct Player {
+                      std::shared_ptr<Player> companion;
+                      ~Player() { std::cout << "~Player\n"; }
+                    };
+
+                    int main() {
+                      std::shared_ptr<Player> jasmine = std::make_shared<Player>();
+                      std::shared_ptr<Player> albert  = std::make_shared<Player>();
+
+                      jasmine->companion = albert; // (1)
+                      albert->companion  = jasmine; // (2)
+                    }
+
+                Makes sense, doesn't it? Unfortunately, I have just created the so-called circular reference.
+                At the beginning of my program I create two smart pointers jasmine and albert that store
+                dynamically-created objects: let's call this dynamic data jasmine-data and albert-data to make
+                things clearer.
+
+                Then, in (1) I give jasmine a pointer to albert-data, while in (2) albert holds a pointer to
+                jasmine-data. This is like giving each player a companion.
+
+                When jasmine goes out of scope at the end of the program, its destructor can't cleanup the
+                memory: there is still one smart pointer pointing at jasmine-data, that is albert->companion.
+                Likewise, when albert goes out of scope at the end of the program, its destructor can't cleanup
+                the memory: a reference to albert-data still lives through jasmine->companion. At this point the
+                program just quits without freeing memory: a memory leak in all its splendor. If you run the
+                snippet above you will notice how the ~Player() will never get called.
+
+                This is not a huge problem here, as the operating system will take care of cleaning up the memory
+                for you. However you don't really want to have such circular dependencies (i.e. memory leaks) in
+                the middle of your program. Fortunately the last type of smart pointer will come to the rescue.
+
+
+
+
+        - Like a std::shared_ptr, but it doesn't increment the counter.
+
+                std::weak_ptr
+
+                A std::weak_ptr is basically a std::shared_ptr that doesn't increase the reference count.
+
+                It is defined as a smart pointer that holds a non-owning reference, or a weak reference,
+                to an object that is managed by another std::shared_ptr.
+
+                This smart pointer is useful to solve some annoying problems that you can't fix with raw pointers.
+                We will see how shortly.
+
+                You can only create a std::weak_ptr out of a std::shared_ptr or another std::weak_ptr. For example:
+
+                    std::shared_ptr<int> p_shared = std::make_shared<int>(100);
+                    std::weak_ptr<int>   p_weak1(p_shared);
+                    std::weak_ptr<int>   p_weak2(p_weak1);
+
+                In the example above p_weak1 and p_weak2 point to the same dynamic data owned by p_shared,
+                but the reference counter doesn't grow.
+
+                A std::weak_ptr is a sort of inspector on the std::shared_ptr it depends on. You have to convert
+                it to a std::shared_ptr first with the lock() method if you really want to work with the actual object:
+
+                    std::shared_ptr<int> p_shared = std::make_shared<int>(100);
+                    std::weak_ptr<int>   p_weak(p_shared);
+                    // ...
+                    std::shared_ptr<int> p_shared_orig = p_weak.lock();
+                    //
+
+                Of course p_shared_orig might be null in case p_shared got deleted somewhere else.
+
+                std::weak_ptr is a problem solver
+
+                A std::weak_ptr makes the problem of dangling pointers, pointers that point to already
+                deleted data, super easy to solve. It provides the expired() method which checks whether
+                the referenced object was already deleted. If expired() == true, the original object has
+                been deleted somewhere and you can act accordingly. This is something you can't do with
+                raw pointers.
+
+                As I said before, a std::weak_ptr is also used to break a circular reference.
+                Let's go back to the Player example above and change the member variable from
+                std::shared_ptr<Player> companion to std::weak_ptr<Player> companion.
+                In this case we used a std::weak_ptr to dissolve the entangled ownership. The actual
+                dynamically-allocated data stays in the main body, while each Player has now a weak
+                reference to it. Run the code with the change and you will see how the destructor
+                gets called twice, correctly.
+
+
+
+        I like smart pointers. Should I get rid of new/delete forever?
+
+            Sometimes you do want to rely on the new/delete twins, for example:
+
+                - when you need a custom deleter, as we saw earlier when we added support for arrays in std::shared_ptr;
+                - when writing your own containers and you want to manually manage the memory;
+                - with the so-called in-place construction, better known as placement new: a new way to construct an
+                  object on memory that's already allocated. More information here.
+
+        Are smart pointers slower than raw ones?
+
+                According to various sources (here and here), performance of smart pointers should be close to raw
+                ones. A little speed penalty might be present in std::shared_ptr due to the internal reference
+                counting. All in all, there is some overhead, but it shouldn't make the code slow unless you
+                continuously create and destroy smart pointers.
+
+        The rationale behind std::make_unique and std::make_shared
+
+            This alternate way of building smart pointers provides two advantages. First of all, it lets us forget
+            about the new keyword. When working with smart pointers we want to get rid of the new/delete evil combo,
+            right? Secondly, it makes your code safe against exceptions. Consider calling a function that takes two
+            smart pointers in input, like this:
+
+                   void function(std::unique_ptr<A>(new A()), std::unique_ptr<B>(new B())) { ... }
+
+            Suppose that new A() succeeds, but new B() throws an exception: you catch it to resume the normal
+            execution of your program. Unfortunately, the C++ standard does not require that object A gets
+            destroyed and its memory deallocated: memory silently leaks and there's no way to clean it up. By
+            wrapping A and B into std::make_uniques you are sure the leak will not occur:
+
+                    void function(std::make_unique<A>(), std::make_unique<B>()) { ... }
+
+        The point here is that std::make_unique<A> and std::make_unique<B> are now temporary objects, and cleanup
+        of temporary objects is correctly specified in the C++ standard: their destructors will be triggered and
+        the memory freed. So if you can, always prefer to allocate objects using std::make_unique and std::make_shared.
+
+
+https://www.internalpointers.com/post/beginner-s-look-smart-pointers-modern-c
