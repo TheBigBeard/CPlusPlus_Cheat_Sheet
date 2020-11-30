@@ -1,5 +1,6 @@
-//
-// Created by Arthur Rumrill on 11/29/20.
-//
+#include <iostream>
 
-#include "Main.h"
+int main() {
+    std::cout << "Hello, World!" << std::endl;
+    return 0;
+}

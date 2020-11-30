@@ -1,12 +1,8 @@
-//
-// Created by Arthur Rumrill on 11/29/20.
-//
-
 #ifndef CPLUSPLUS_CHEAT_SHEET_MAIN_H
 #define CPLUSPLUS_CHEAT_SHEET_MAIN_H
 
 
-class Main {
+class main {
 
 };
 
